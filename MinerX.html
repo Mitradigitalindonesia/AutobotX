@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MinerX</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; background: #f2f2f2; }
+    .header { display: flex; justify-content: space-between; align-items: center; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; background: #007bff; color: white; cursor: pointer; margin: 6px 4px; }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { background: #0056b3; }
+    .container { background: white; padding: 16px; border-radius: 10px; margin-top: 20px; box-shadow: 0 0 5px rgba(0,0,0,0.1); }
+    .log { font-size: 14px; border-bottom: 1px solid #eee; padding: 6px 0; }
+    .progress-container { background: #eee; border-radius: 8px; overflow: hidden; height: 20px; margin-top: 10px; }
+    .progress-bar { height: 100%; background: #28a745; width: 0%; transition: width 1s linear; text-align: center; color: white; font-size: 12px; }
+    #miningTimeLeft { font-size: 14px; margin-top: 8px; }
+    .actions { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h2>MinerX</h2>
+  <button class="btn" onclick="location.href='index.html'">Dashboard</button>
+</div>
+
+<div class="container">
+  <div>Saldo Gold: <strong id="goldBalance">Memuat...</strong></div>
+  <div>Saldo IDR: <strong id="idrBalance">Memuat...</strong></div>
+  <div id="miningStatus">Status: Memuat...</div>
+  <div id="miningTimeLeft"></div>
+  <div class="progress-container">
+    <div class="progress-bar" id="miningProgress">0%</div>
+  </div>
+  <div class="actions">
+    <button class="btn" id="startMiningBtn">Mulai</button>
+    <button class="btn" id="buyMachineBtn">Beli</button>
+    <button class="btn" id="rentMachineBtn">Sewa</button>
+  </div>
+</div>
+
+<div class="container">
+  <h3>Riwayat Mining</h3>
+  <div id="miningLog">Memuat riwayat mining...</div>
+</div>
+
+<!-- Modal (tanpa onclick inline) -->
+<div id="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); z-index:1000; justify-content:center; align-items:center;">
+  <div id="modalContent" style="background:white; padding:20px; border-radius:10px; width:300px; text-align:center;">
+    <h3 id="modalTitle">Konfirmasi</h3>
+    <p id="modalDesc">Deskripsi...</p>
+    <button class="btn" id="modalConfirmBtn">Konfirmasi</button>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
+  import { getDatabase, ref, get, update, push } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAtuQrEB9Sm3Ra7nlLGkv-F9FsyJDSyDcQ",
+    authDomain: "mitra-digital-c1e18.firebaseapp.com",
+    databaseURL: "https://mitra-digital-c1e18-default-rtdb.firebaseio.com",
+    projectId: "mitra-digital-c1e18",
+    storageBucket: "mitra-digital-c1e18.appspot.com",
+    messagingSenderId: "651499129511",
+    appId: "1:651499129511:web:21addb7bbedd1e8ff4a982"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth();
+  const db = getDatabase();
+
+  let currentUser = null;
+  let gold = 0;
+  let balance = 0;
+  let miningMachine = { owned: false, rentedUntil: 0 };
+  let miningInterval = null;
+  let totalSeconds = 3600;
+  let currentSecond = 0;
+
+  function showModal(title, desc, confirmCallback) {
+    document.getElementById("modalTitle").innerText = title;
+    document.getElementById("modalDesc").innerHTML = desc;
+    const confirmBtn = document.getElementById("modalConfirmBtn");
+    const newConfirm = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirm, confirmBtn);
+    newConfirm.addEventListener("click", () => {
+      closeModal();
+      confirmCallback();
+    });
+    document.getElementById("modal").style.display = "flex";
+  }
+
+  function closeModal() {
+    document.getElementById("modal").style.display = "none";
+  }
+
+  const getMachineStock = async () => {
+    const snap = await get(ref(db, 'machinePool'));
+    return snap.exists() ? snap.val() : { forSale: 0, forRent: 0 };
+  };
+
+  const updateUI = () => {
+    document.getElementById("goldBalance").innerText = gold.toFixed(4);
+    document.getElementById("idrBalance").innerText = balance.toLocaleString("id-ID");
+    let msg = "Tidak punya mesin.";
+    if (miningMachine.owned) msg = "Anda memiliki mesin mining.";
+    else if (miningMachine.rentedUntil > Date.now()) {
+      const sisa = Math.floor((miningMachine.rentedUntil - Date.now()) / 60000);
+      msg = `Sewa aktif, sisa waktu: ${sisa} menit`;
+    } else if (miningMachine.rentedUntil !== 0) {
+      msg = "Sewa habis. Mesin dikembalikan ke pool.";
+    }
+    document.getElementById("miningStatus").innerText = "Status: " + msg;
+  };
+
+  const updateProgressUI = () => {
+    const progress = (currentSecond / totalSeconds) * 100;
+    const bar = document.getElementById("miningProgress");
+    bar.style.width = `${progress}%`;
+    bar.innerText = `${progress.toFixed(1)}%`;
+    const remaining = totalSeconds - currentSecond;
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+    document.getElementById("miningTimeLeft").innerText = `Sisa waktu: ${mins}m ${secs}s`;
+  };
+
+  const loadUserData = async () => {
+    const userRef = ref(db, `users/${currentUser.uid}`);
+    const snap = await get(userRef);
+    if (snap.exists()) {
+      const data = snap.val();
+      gold = parseFloat(data.gold || 0);
+      balance = parseInt(data.balance || 0);
+      miningMachine = data.miningMachine || { owned: false, rentedUntil: 0 };
+      const now = Date.now();
+      if (miningMachine.rentedUntil > 0 && miningMachine.rentedUntil < now) {
+        miningMachine.rentedUntil = 0;
+        await update(userRef, { miningMachine });
+        const rentSnap = await get(ref(db, 'machinePool/forRent'));
+        const newStock = rentSnap.exists() ? rentSnap.val() + 1 : 1;
+        await update(ref(db, 'machinePool'), { forRent: newStock });
+      }
+    }
+    updateUI();
+  };
+
+  const loadMiningLogs = async () => {
+    const snap = await get(ref(db, `users/${currentUser.uid}/miningLog`));
+    const logDiv = document.getElementById("miningLog");
+    logDiv.innerHTML = "";
+    if (snap.exists()) {
+      const logs = Object.values(snap.val()).sort((a, b) => b.timestamp - a.timestamp);
+      logs.forEach(log => {
+        const el = document.createElement("div");
+        el.className = "log";
+        el.innerText = `[${new Date(log.timestamp).toLocaleString()}] Mining: ${log.amount.toFixed(4)} Gold`;
+        logDiv.appendChild(el);
+      });
+        
+    } else {
+      logDiv.innerText = "Belum ada riwayat mining.";
+    }
+  };
+
+  const buyMachine = async () => {
+    const stockSnap = await get(ref(db, 'machinePool/forSale'));
+    const stock = stockSnap.val();
+    if (stock <= 0) return alert("Stok mesin habis.");
+    if (gold < 100000) return alert("Gold tidak cukup untuk membeli mesin.");
+
+    gold -= 100000;
+    miningMachine.owned = true;
+
+    await update(ref(db, `users/${currentUser.uid}`), { gold, miningMachine });
+    await update(ref(db, 'machinePool'), { forSale: stock - 1 });
+
+    alert("Pembelian mesin berhasil.");
+    updateUI();
+  };
+
+  const rentMachine = async () => {
+    const stockSnap = await get(ref(db, 'machinePool/forRent'));
+    const stock = stockSnap.val();
+    if (stock <= 0) return alert("Stok mesin sewa habis.");
+    if (gold < 10) return alert("Gold tidak cukup untuk menyewa mesin.");
+
+    gold -= 10;
+    const extendTime = 60 * 60 * 1000;
+    const now = Date.now();
+    miningMachine.rentedUntil = Math.max(now, miningMachine.rentedUntil || 0) + extendTime;
+
+    await update(ref(db, `users/${currentUser.uid}`), { gold, miningMachine });
+    await update(ref(db, 'machinePool'), { forRent: stock - 1 });
+
+    alert("Sewa berhasil, aktif selama 1 jam.");
+    updateUI();
+  };
+
+  const startMining = async () => {
+    const now = Date.now();
+    const hasMachine = miningMachine.owned || (miningMachine.rentedUntil > now);
+    if (!hasMachine) return alert("Anda belum punya atau menyewa mesin.");
+    if (miningInterval) return alert("Mining sedang berjalan.");
+
+    document.getElementById("startMiningBtn").disabled = true;
+    document.getElementById("buyMachineBtn").disabled = true;
+    document.getElementById("rentMachineBtn").disabled = true;
+
+    await update(ref(db, `users/${currentUser.uid}/miningStatus`), { isMining: true });
+
+    totalSeconds = 3600;
+    currentSecond = 0;
+    let totalMined = 0;
+
+    miningInterval = setInterval(async () => {
+      if (currentSecond >= totalSeconds) {
+        clearInterval(miningInterval);
+        miningInterval = null;
+        await update(ref(db, `users/${currentUser.uid}/miningStatus`), { isMining: false });
+        await push(ref(db, `users/${currentUser.uid}/miningLog`), {
+          amount: totalMined,
+          timestamp: Date.now()
+        });
+
+        alert(`Mining selesai. Total: ${totalMined.toFixed(4)} Gold`);
+
+        await loadUserData();
+        await loadMiningLogs();
+
+        document.getElementById("miningProgress").style.width = "0%";
+        document.getElementById("miningProgress").innerText = "0%";
+        document.getElementById("miningTimeLeft").innerText = "";
+
+        document.getElementById("startMiningBtn").disabled = false;
+        document.getElementById("buyMachineBtn").disabled = false;
+        document.getElementById("rentMachineBtn").disabled = false;
+
+        return;
+      }
+
+      const mined = 0.0032;
+      gold += mined;
+      totalMined += mined;
+      currentSecond++;
+      await update(ref(db, `users/${currentUser.uid}`), { gold });
+      document.getElementById("goldBalance").innerText = gold.toFixed(4);
+      updateProgressUI();
+    }, 1000);
+  };
+
+  // Event listeners
+  document.getElementById("startMiningBtn").addEventListener("click", startMining);
+
+  document.getElementById("buyMachineBtn").addEventListener("click", async () => {
+    const stock = await getMachineStock();
+    const desc = `
+      <p>Stok Mesin: <strong>${stock.forSale} tersedia</strong></p>
+      <p>Biaya: <strong>100.000 Gold</strong></p>
+      <p>Anda yakin ingin membeli mesin ini?</p>
+    `;
+    showModal("Konfirmasi Pembelian", desc, buyMachine);
+  });
+
+  document.getElementById("rentMachineBtn").addEventListener("click", async () => {
+    const stock = await getMachineStock();
+    const desc = `
+      <p>Stok Mesin: <strong>${stock.forRent} tersedia</strong></p>
+      <p>Biaya: <strong>10 Gold / jam</strong></p>
+      <p>Anda yakin ingin menyewa mesin selama 1 jam?</p>
+    `;
+    showModal("Konfirmasi Sewa", desc, rentMachine);
+  });
+
+  onAuthStateChanged(auth, async user => {
+    if (user) {
+      currentUser = user;
+      await loadUserData();
+      await loadMiningLogs();
+    } else {
+      alert("Silakan login terlebih dahulu.");
+      window.location.href = "index.html";
+    }
+  });
+
+  // Modal close event listener
+  document.getElementById("modal").addEventListener("click", function (event) {
+    if (event.target.id === "modal") {
+      closeModal();
+    }
+  });
+
+  // Update sewa status tiap 10 detik
+  setInterval(() => {
+    if (!currentUser) return;
+    const now = Date.now();
+    if (miningMachine.rentedUntil > now) {
+      const sisa = Math.floor((miningMachine.rentedUntil - now) / 60000);
+      document.getElementById("miningStatus").innerText = `Status: Sewa aktif, sisa waktu: ${sisa} menit`;
+    } else if (miningMachine.rentedUntil > 0) {
+      document.getElementById("miningStatus").innerText = "Status: Sewa habis. Mesin dikembalikan ke pool.";
+    }
+  }, 10000);
+</script>
+</body>
+</html>
