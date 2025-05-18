@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Marketplace</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script> <!-- Plugin Candlestick -->
+  <style>
+    body { font-family: sans-serif; margin: 20px; background: #f2f2f2; }
+    .header { display: flex; justify-content: space-between; align-items: center; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; background: #007bff; color: white; cursor: pointer; margin: 6px; }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { background: #0056b3; }
+    .container { background: white; padding: 16px; border-radius: 10px; margin-top: 20px; box-shadow: 0 0 5px rgba(0,0,0,0.1); }
+    .item { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ccc; }
+    .log { font-size: 14px; border-bottom: 1px solid #eee; padding: 6px 0; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h2>Marketplace</h2>
+    <button class="btn" onclick="window.location.href='index.html'">Dashboard</button>
+  </div>
+
+  <div class="container">
+    <div>Saldo Gold: <strong id="goldBalance">Memuat...</strong></div>
+    <div>Saldo IDR: <strong id="idrBalance">Memuat...</strong></div>
+    <canvas id="priceChart" height="100"></canvas>
+  </div>
+
+  <div class="container">
+    <div class="item">
+      <div>
+        <strong>Gold</strong><br>
+        <small id="priceText">Beli: - / Jual: -</small>
+      </div>
+      <div>
+        <button class="btn" id="buyBtn">Beli</button>
+        <button class="btn" id="sellBtn">Jual</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h3>Riwayat Transaksi</h3>
+    <div id="transactionLog">Memuat riwayat transaksi...</div>
+  </div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
+import { getDatabase, ref, get, update, push, onValue } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAtuQrEB9Sm3Ra7nlLGkv-F9FsyJDSyDcQ",
+  authDomain: "mitra-digital-c1e18.firebaseapp.com",
+  databaseURL: "https://mitra-digital-c1e18-default-rtdb.firebaseio.com",
+  projectId: "mitra-digital-c1e18",
+  storageBucket: "mitra-digital-c1e18.appspot.com",
+  messagingSenderId: "651499129511",
+  appId: "1:651499129511:web:21addb7bbedd1e8ff4a982"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth();
+const db = getDatabase();
+
+let currentUser = null;
+let gold = 0;
+let balance = 0;
+let pool = { gold: 1000, idr: 1000000 };
+
+const priceText = document.getElementById("priceText");
+const ctx = document.getElementById("priceChart").getContext("2d");
+const priceChart = new Chart(ctx, {
+  type: 'candlestick',
+  data: {
+    datasets: [{
+      label: 'Harga Beli',
+      data: [],
+    }]
+  },
+  options: {
+    responsive: true,
+    scales: {
+      x: {
+        type: 'linear',
+        position: 'bottom',
+      },
+      y: {
+        beginAtZero: false
+      }
+    }
+  }
+});
+
+const getPrice = (delta, isBuy) => {
+  const k = pool.gold * pool.idr;
+  if (isBuy) {
+    const newGold = pool.gold - delta;
+    const newIdr = k / newGold;
+    return Math.ceil(newIdr - pool.idr);
+  } else {
+    const newGold = pool.gold + delta;
+    const newIdr = k / newGold;
+    return Math.floor(pool.idr - newIdr);
+  }
+};
+
+const updateChart = (priceOpen, priceClose) => {
+  const now = new Date().toLocaleTimeString();
+  const data = priceChart.data;
+  data.datasets[0].data.push({
+    t: new Date().getTime(),
+    o: priceOpen, // open price
+    h: Math.max(priceOpen, priceClose), // high price
+    l: Math.min(priceOpen, priceClose), // low price
+    c: priceClose  // close price
+  });
+
+  // Limit chart data to last 20 entries
+  if (data.datasets[0].data.length > 20) {
+    data.datasets[0].data.shift();
+  }
+  
+  priceChart.update();
+};
+
+const updatePriceDisplay = () => {
+  const hargaBeli = getPrice(100, true);
+  const hargaJual = getPrice(100, false);
+  priceText.innerText = `Beli: ${hargaBeli} IDR / Jual: ${hargaJual} IDR (per 100 Gold)`;
+  
+  updateChart(hargaBeli, hargaJual);
+};
+
+const updateUI = () => {
+  document.getElementById("goldBalance").innerText = gold.toFixed(2);
+  document.getElementById("idrBalance").innerText = balance.toLocaleString("id-ID");
+  updatePriceDisplay();
+};
+
+const disableButtons = (state) => {
+  document.getElementById("buyBtn").disabled = state;
+  document.getElementById("sellBtn").disabled = state;
+};
+
+const loadPool = async () => {
+  const snap = await get(ref(db, `lp_pool`));
+  if (snap.exists()) pool = snap.val();
+};
+
+const logTransaction = async (type, amount, detail) => {
+  const logRef = ref(db, `marketplace_logs/${currentUser.uid}`);
+  await push(logRef, {
+    type, amount, detail, timestamp: Date.now()
+  });
+
+  // Update log transaction on UI
+  const el = document.createElement("div");
+  el.className = "log";
+  el.innerText = `[${new Date().toLocaleString()}] ${type}: ${detail} (${amount})`;
+  document.getElementById("transactionLog").prepend(el);
+};
+
+const buyItem = async () => {
+  disableButtons(true);
+  await loadPool();
+  const harga = getPrice(100, true);
+  if (balance < harga || pool.gold < 100) {
+    alert("Saldo tidak cukup atau pool kosong.");
+    disableButtons(false);
+    return;
+  }
+
+  balance -= harga;
+  gold += 100;
+  pool.gold -= 100;
+  pool.idr += harga;
+
+  await update(ref(db, `users/${currentUser.uid}`), { balance, gold });
+  await update(ref(db, `lp_pool`), pool);
+  await logTransaction("Beli", "100 Gold", `Bayar ${harga} IDR`);
+  updateUI();
+  disableButtons(false);
+};
+
+const sellItem = async () => {
+  disableButtons(true);
+  await loadPool();
+  const harga = getPrice(100, false);
+  if (gold < 100 || pool.idr < harga) {
+    alert("Gold tidak cukup atau pool IDR kurang.");
+    disableButtons(false);
+    return;
+  }
+
+  gold -= 100;
+  balance += harga;
+  pool.gold += 100;
+  pool.idr -= harga;
+
+  await update(ref(db, `users/${currentUser.uid}`), { balance, gold });
+  await update(ref(db, `lp_pool`), pool);
+  await logTransaction("Jual", "100 Gold", `Terima ${harga} IDR`);
+  updateUI();
+  disableButtons(false);
+};
+
+const loadUserData = async () => {
+  const snap = await get(ref(db, `users/${currentUser.uid}`));
+  if (snap.exists()) {
+    const data = snap.val();
+    gold = parseFloat(data.gold || 0);
+    balance = parseInt(data.balance || 0);
+  }
+  await loadPool();
+  updateUI();
+};
+
+const loadLogs = async () => {
+  const snap = await get(ref(db, `marketplace_logs/${currentUser.uid}`));
+  const logDiv = document.getElementById("transactionLog");
+  logDiv.innerHTML = "";
+  if (snap.exists()) {
+    const logs = Object.values(snap.val()).sort((a, b) => b.timestamp - a.timestamp);
+    logs.forEach(log => {
+      const el = document.createElement("div");
+      el.className = "log";
+      el.innerText = `[${new Date(log.timestamp).toLocaleString()}] ${log.type}: ${log.detail} (${log.amount})`;
+      logDiv.appendChild(el);
+    });
+  } else {
+    logDiv.innerText = "Belum ada transaksi.";
+  }
+};
+
+onAuthStateChanged(auth, async user => {
+  if (user) {
+    currentUser = user;
+    await loadUserData();
+    await loadLogs();
+    setInterval(updatePriceDisplay, 5000); // update grafik tiap 5 detik
+  } else {
+    alert("Silakan login terlebih dahulu.");
+    window.location.href = "index.html";
+  }
+});
+
+document.getElementById("buyBtn").addEventListener("click", buyItem);
+document.getElementById("sellBtn").addEventListener("click", sellItem);
+</script>
+
+</body>
+</html>
