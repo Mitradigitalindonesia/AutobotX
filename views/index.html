@@ -4,14 +4,33 @@
   <title>AutobotX</title>
   <meta charset="utf-8" />
   <link rel="stylesheet" href="/style.css">
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 400px;
+      margin: auto;
+      padding-top: 40px;
+    }
+    input, button, select {
+      width: 100%;
+      margin-bottom: 12px;
+      padding: 8px;
+      font-size: 16px;
+    }
+  </style>
 </head>
 <body>
   <h1>🤖 AutobotX</h1>
   <form method="POST" action="/start-bot">
-    <input name="email" type="email" placeholder="Email Windice" required /><br />
-    <input name="password" type="password" placeholder="Password Windice" required /><br />
-    <input name="base_bet" type="number" step="0.00000001" placeholder="Base Bet (BTC)" required /><br />
-    <input name="target_profit" type="number" step="1" placeholder="Target Profit (%)" required /><br />
+    <input name="username" type="text" placeholder="Username Windice" required />
+    <input name="base_bet" type="number" step="0.00000001" placeholder="Base Bet (BTC)" required />
+    <input name="target_profit" type="number" step="1" placeholder="Target Profit (%)" required />
+    
+    <select name="strategy" required>
+      <option value="flat">Flat Betting</option>
+      <option value="martingale">Martingale</option>
+    </select>
+    
     <button type="submit">🚀 Mulai Bot</button>
   </form>
 </body>
