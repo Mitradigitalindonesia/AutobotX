@@ -1,37 +1,190 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>AutobotX</title>
-  <meta charset="utf-8" />
-  <link rel="stylesheet" href="/style.css">
-  <style>
-    body {
-      font-family: sans-serif;
-      max-width: 400px;
-      margin: auto;
-      padding-top: 40px;
-    }
-    input, button, select {
-      width: 100%;
-      margin-bottom: 12px;
-      padding: 8px;
-      font-size: 16px;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard Bot Windice</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
+  .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; }
+  h2 { text-align: center; }
+  label { display: block; margin: 10px 0 5px; }
+  input, select, button { width: 100%; padding: 8px; margin-bottom: 15px; border-radius: 4px; border: 1px solid #ccc; }
+  button { background: #007bff; color: white; border: none; cursor: pointer; }
+  button:hover { background: #0056b3; }
+  .hidden { display: none; }
+  .log { background: #222; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; }
+</style>
 </head>
 <body>
-  <h1>🤖 AutobotX</h1>
-  <form method="POST" action="/start-bot">
-    <input name="username" type="text" placeholder="Username Windice" required />
-    <input name="base_bet" type="number" step="0.00000001" placeholder="Base Bet (BTC)" required />
-    <input name="target_profit" type="number" step="1" placeholder="Target Profit (%)" required />
-    
-    <select name="strategy" required>
-      <option value="flat">Flat Betting</option>
-      <option value="martingale">Martingale</option>
-    </select>
-    
-    <button type="submit">🚀 Mulai Bot</button>
-  </form>
+  <div class="container">
+    <h2>Windice Bot Dashboard</h2>
+
+    <!-- Pilihan: Login atau Daftar -->
+    <div id="auth-section">
+      <label><input type="radio" name="authType" value="login" checked /> Login</label>
+      <label><input type="radio" name="authType" value="register" /> Daftar</label>
+
+      <form id="auth-form">
+        <label for="username">Username</label>
+        <input id="username" name="username" required />
+
+        <label for="password" id="password-label">Password</label>
+        <input type="password" id="password" name="password" required />
+
+        <button type="submit" id="auth-button">Login</button>
+      </form>
+    </div>
+
+    <!-- Setelah login berhasil, munculkan dashboard utama -->
+    <div id="main-dashboard" class="hidden">
+      <h3>Selamat datang, <span id="display-username"></span>!</h3>
+
+      <label for="coin-select">Pilih Coin</label>
+      <select id="coin-select" disabled>
+        <option value="TRX" selected>TRX</option>
+      </select>
+
+      <label for="deposit-amount">Deposit (TRX)</label>
+      <input type="number" id="deposit-amount" min="1" placeholder="Masukkan jumlah deposit" />
+
+      <button id="btn-deposit">Deposit</button>
+
+      <label for="base-bet">Base Bet (TRX)</label>
+      <input type="number" id="base-bet" min="1" placeholder="Masukkan taruhan dasar" />
+
+      <label for="target-profit">Target Profit (TRX)</label>
+      <input type="number" id="target-profit" min="1" placeholder="Masukkan target profit" />
+
+      <button id="btn-start-bet">Mulai Betting</button>
+
+      <h4>Penarikan</h4>
+      <label for="withdraw-amount">Jumlah Withdraw (TRX)</label>
+      <input type="number" id="withdraw-amount" min="1" placeholder="Masukkan jumlah withdraw" />
+      <button id="btn-withdraw">Withdraw</button>
+
+      <h4>Pengaturan Akun</h4>
+      <label for="new-password">Password Baru</label>
+      <input type="password" id="new-password" placeholder="Masukkan password baru" />
+
+      <label for="email">Email (opsional)</label>
+      <input type="email" id="email" placeholder="Masukkan email untuk keamanan" />
+
+      <button id="btn-save-settings">Simpan Pengaturan</button>
+
+      <h4>Log Aktivitas</h4>
+      <div class="log" id="log"></div>
+
+      <button id="btn-logout" style="background:#dc3545; margin-top:10px;">Logout</button>
+    </div>
+  </div>
+
+<script>
+  const authForm = document.getElementById("auth-form");
+  const authTypeRadios = document.getElementsByName("authType");
+  const authButton = document.getElementById("auth-button");
+  const passwordInput = document.getElementById("password");
+  const passwordLabel = document.getElementById("password-label");
+
+  const authSection = document.getElementById("auth-section");
+  const mainDashboard = document.getElementById("main-dashboard");
+  const displayUsername = document.getElementById("display-username");
+  const logEl = document.getElementById("log");
+
+  // Toggle button text and password required based on login/register
+  authTypeRadios.forEach(radio => {
+    radio.addEventListener("change", () => {
+      if(radio.checked && radio.value === "login") {
+        authButton.textContent = "Login";
+        passwordInput.required = true;
+        passwordLabel.style.display = "block";
+        passwordInput.style.display = "block";
+      } else if(radio.checked && radio.value === "register") {
+        authButton.textContent = "Daftar";
+        passwordInput.required = true;
+        passwordLabel.style.display = "block";
+        passwordInput.style.display = "block";
+      }
+    });
+  });
+
+  // Dummy handlers (replace with actual calls to backend)
+  authForm.addEventListener("submit", e => {
+    e.preventDefault();
+    const username = e.target.username.value.trim();
+    const password = e.target.password.value.trim();
+    const authType = [...authTypeRadios].find(r => r.checked).value;
+
+    if (!username || !password) {
+      alert("Username dan password wajib diisi");
+      return;
+    }
+
+    // Simulasi login/register
+    log("Mencoba " + authType + " dengan username: " + username);
+
+    // TODO: Panggil API atau socket backend untuk autentikasi asli disini
+
+    // Jika sukses
+    onLoginSuccess(username);
+  });
+
+  function onLoginSuccess(username) {
+    authSection.classList.add("hidden");
+    mainDashboard.classList.remove("hidden");
+    displayUsername.textContent = username;
+    log("Login berhasil sebagai " + username);
+  }
+
+  // Log helper
+  function log(text) {
+    const time = new Date().toLocaleTimeString();
+    logEl.textContent += `[${time}] ${text}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // Tombol Logout
+  document.getElementById("btn-logout").addEventListener("click", () => {
+    mainDashboard.classList.add("hidden");
+    authSection.classList.remove("hidden");
+    log("User logout");
+    authForm.reset();
+    logEl.textContent = "";
+  });
+
+  // Tombol Deposit (dummy)
+  document.getElementById("btn-deposit").addEventListener("click", () => {
+    const amount = document.getElementById("deposit-amount").value;
+    if(!amount || amount <= 0) return alert("Masukkan jumlah deposit valid!");
+    log(`Deposit ${amount} TRX dikirimkan ke windice...`);
+    // TODO: Implementasi deposit real via Puppeteer backend
+  });
+
+  // Tombol Start Betting (dummy)
+  document.getElementById("btn-start-bet").addEventListener("click", () => {
+    const baseBet = document.getElementById("base-bet").value;
+    const targetProfit = document.getElementById("target-profit").value;
+    if(!baseBet || baseBet <= 0) return alert("Masukkan Base Bet valid!");
+    if(!targetProfit || targetProfit <= 0) return alert("Masukkan Target Profit valid!");
+    log(`Mulai betting dengan base bet ${baseBet} TRX dan target profit ${targetProfit} TRX...`);
+    // TODO: Implementasi Puppeteer start betting backend
+  });
+
+  // Tombol Withdraw (dummy)
+  document.getElementById("btn-withdraw").addEventListener("click", () => {
+    const amount = document.getElementById("withdraw-amount").value;
+    if(!amount || amount <= 0) return alert("Masukkan jumlah withdraw valid!");
+    log(`Permintaan withdraw sebesar ${amount} TRX diajukan...`);
+    // TODO: Implementasi withdraw real via Puppeteer backend
+  });
+
+  // Tombol Save Settings (dummy)
+  document.getElementById("btn-save-settings").addEventListener("click", () => {
+    const newPassword = document.getElementById("new-password").value;
+    const email = document.getElementById("email").value;
+    log(`Pengaturan akun diperbarui. Password: ${newPassword ? "Diubah" : "Tidak diubah"}, Email: ${email || "Tidak diisi"}`);
+    // TODO: Implementasi update password dan email via backend
+  });
+</script>
 </body>
 </html>
