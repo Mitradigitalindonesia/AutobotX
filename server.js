@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require("express");
 const puppeteer = require("puppeteer");
 const bodyParser = require("body-parser");
@@ -17,13 +18,14 @@ app.post("/start-bot", async (req, res) => {
   try {
     const browser = await puppeteer.launch({
       headless: true,
+      executablePath: process.env.CHROME_PATH,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
     const page = await browser.newPage();
     await page.goto("https://windice.io", { waitUntil: "networkidle2" });
 
-    // Click login and fill credentials
+    // Login Windice (anonim tidak perlu password jika memang tidak dibutuhkan)
     await page.click('button[data-target="#loginModal"]');
     await page.waitForSelector('#loginModal input[name="email"]');
     await page.type('#loginModal input[name="email"]', email, { delay: 30 });
@@ -32,15 +34,14 @@ app.post("/start-bot", async (req, res) => {
 
     await page.waitForTimeout(5000);
 
-    // Make sure logged in
+    // Cek login sukses
     const username = await page.$eval('#user-dropdown', el => el.textContent.trim());
     if (!username) throw new Error("Login gagal.");
 
-    // Contoh taruhan sederhana
+    // Taruhan sederhana
     await page.type('input[placeholder*="Bet"]', base_bet.toString());
     await page.click('button:has-text("Bet High")');
-
-    await page.waitForTimeout(6000); // Tunggu hasil
+    await page.waitForTimeout(6000);
 
     const resultText = await page.$eval('#last-result', el => el.textContent);
 
