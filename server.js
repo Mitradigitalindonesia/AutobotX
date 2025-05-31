@@ -13,7 +13,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/start-bot", async (req, res) => {
-  const { email, password, base_bet, target_profit } = req.body;
+  const { username, base_bet, target_profit, strategy } = req.body;
 
   try {
     const browser = await puppeteer.launch({
@@ -25,33 +25,37 @@ app.post("/start-bot", async (req, res) => {
     const page = await browser.newPage();
     await page.goto("https://windice.io", { waitUntil: "networkidle2" });
 
-    // Login Windice (anonim tidak perlu password jika memang tidak dibutuhkan)
-    await page.click('button[data-target="#loginModal"]');
-    await page.waitForSelector('#loginModal input[name="email"]');
-    await page.type('#loginModal input[name="email"]', email, { delay: 30 });
-    await page.type('#loginModal input[name="password"]', password, { delay: 30 });
-    await page.click('#loginModal button[type="submit"]');
+    // Masukkan username anonim (tanpa login modal)
+    await page.waitForSelector('#username');
+    await page.type('#username', username);
+    await page.click('#play-button'); // Tombol 'Play as guest'
 
-    await page.waitForTimeout(5000);
+    await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
-    // Cek login sukses
-    const username = await page.$eval('#user-dropdown', el => el.textContent.trim());
-    if (!username) throw new Error("Login gagal.");
+    // Buka halaman Dice
+    await page.goto('https://windice.io/dice', { waitUntil: 'networkidle2' });
 
-    // Taruhan sederhana
+    // Masukkan jumlah taruhan
+    await page.waitForSelector('input[placeholder*="Bet"]');
     await page.type('input[placeholder*="Bet"]', base_bet.toString());
-    await page.click('button:has-text("Bet High")');
-    await page.waitForTimeout(6000);
 
-    const resultText = await page.$eval('#last-result', el => el.textContent);
+    // Taruhan sederhana (contoh: 5x bet high)
+    let resultLog = [];
+    for (let i = 0; i < 5; i++) {
+      await page.click('button[onclick*="betHigh"]'); // Ganti selector jika perlu
+      await page.waitForTimeout(3000);
+
+      const balance = await page.$eval('#balance', el => el.textContent.trim());
+      resultLog.push(`🎲 Roll ${i + 1}: Saldo = ${balance}`);
+    }
 
     await browser.close();
 
-    res.send(`Login berhasil sebagai ${username}, hasil taruhan: ${resultText}`);
+    res.send(`<pre>Bot berjalan sebagai ${username}.\n\n${resultLog.join('\n')}</pre>`);
   } catch (e) {
-    res.status(500).send("Gagal menjalankan bot: " + e.message);
+    res.status(500).send("❌ Gagal menjalankan bot: " + e.message);
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server berjalan di port " + PORT));
+app.listen(PORT, () => console.log("✅ Server berjalan di port " + PORT));
