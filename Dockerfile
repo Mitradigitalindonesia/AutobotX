@@ -30,4 +30,4 @@ COPY . .
 RUN npm install
 
 # Jalankan bot
-CMD ["node", "index.js"]
+CMD ["node", "server.js"]
